@@ -1,6 +1,7 @@
 from enum import Enum
 from queue import PriorityQueue
 import numpy as np
+from itertools import islice
 
 
 def create_grid(data, drone_altitude, safety_distance):
@@ -25,6 +26,7 @@ def create_grid(data, drone_altitude, safety_distance):
 
     # Initialize an empty grid
     grid = np.zeros((north_size, east_size))
+    centerpoints = []
 
     # Populate the grid with obstacles
     for i in range(data.shape[0]):
@@ -37,8 +39,9 @@ def create_grid(data, drone_altitude, safety_distance):
                 int(np.clip(east + d_east + safety_distance - east_min, 0, east_size-1)),
             ]
             grid[obstacle[0]:obstacle[1]+1, obstacle[2]:obstacle[3]+1] = 1
+            centerpoints.append([north - north_min, east - east_min])
 
-    return grid, int(north_min), int(east_min)
+    return grid, centerpoints, int(north_min), int(east_min)
 
 
 # Assume all actions cost the same.
@@ -55,6 +58,11 @@ class Action(Enum):
     EAST = (0, 1, 1)
     NORTH = (-1, 0, 1)
     SOUTH = (1, 0, 1)
+    # Diagonal moves
+    SOUTH_EAST = (1, 1, np.sqrt(2))
+    NORTH_EAST = (-1, 1, np.sqrt(2))
+    SOUTH_WEST = (1, -1, np.sqrt(2))
+    NORTH_WEST = (-1, -1, np.sqrt(2))
 
     @property
     def cost(self):
@@ -85,13 +93,21 @@ def valid_actions(grid, current_node):
     if y + 1 > m or grid[x, y + 1] == 1:
         valid_actions.remove(Action.EAST)
 
+    #Diagonal moves
+    if x + 1 > n or y + 1 > m or grid[x + 1, y + 1] == 1:
+        valid_actions.remove(Action.SOUTH_EAST)
+    if x - 1 < 0 or y + 1 > m or grid[x - 1, y + 1] == 1:
+        valid_actions.remove(Action.NORTH_EAST)
+    if x + 1 > n or y - 1 < 0 or grid[x + 1, y - 1] == 1:
+        valid_actions.remove(Action.SOUTH_WEST)
+    if x - 1 < 0 or y - 1 < 0 or grid[x - 1, y - 1] == 1:
+        valid_actions.remove(Action.NORTH_WEST)
+
     return valid_actions
 
 
-def a_star(grid, h, start, goal):
+def a_star_grid(grid, h, start, goal):
 
-    path = []
-    path_cost = 0
     queue = PriorityQueue()
     queue.put((0, start))
     visited = set(start)
@@ -116,14 +132,18 @@ def a_star(grid, h, start, goal):
                 # get the tuple representation
                 da = action.delta
                 next_node = (current_node[0] + da[0], current_node[1] + da[1])
-                branch_cost = current_cost + action.cost
-                queue_cost = branch_cost + h(next_node, goal)
                 
                 if next_node not in visited:                
+                    branch_cost = current_cost + action.cost
+                    queue_cost = branch_cost + h(next_node, goal)
+
                     visited.add(next_node)               
                     branch[next_node] = (branch_cost, current_node, action)
                     queue.put((queue_cost, next_node))
-             
+
+    path = []
+    path_cost = 0
+
     if found:
         # retrace steps
         n = goal
@@ -140,7 +160,108 @@ def a_star(grid, h, start, goal):
     return path[::-1], path_cost
 
 
-
 def heuristic(position, goal_position):
     return np.linalg.norm(np.array(position) - np.array(goal_position))
+
+def colinearity_test(path):
+    def point(p):
+        return np.array([p[0], p[1], 1.]).reshape(1, -1)
+
+    minval = float("inf")
+    maxval = float("-inf")
+
+    i = 0
+    while i < len(path) - 2:
+        val = abs(np.linalg.det(np.concatenate((point(path[i]), point(path[i + 1]), point(path[i + 2])), 0)))
+        if val < minval:
+            minval = val
+        if val > maxval:
+            maxval = val
+        i += 1
+
+    return minval, maxval
+
+
+def prunepath(path, epsilon=1e-6):
+    def point(p):
+        return np.array([p[0], p[1], 1.]).reshape(1, -1)
+
+    def collinearity(p1, p2, p3):
+        return abs(np.linalg.det(np.concatenate((p1, p2, p3), 0))) < epsilon
+
+    # should use this to calibrate a scale-dependent deviation
+    def collinearity_scaled(p1, p2, p3):
+        return abs(np.linalg.det(np.concatenate((point(p1), point(p2), point(p3)), 0))/np.linalg.norm(np.array(p1) - np.array(p3))) < epsilon
+
+    pruned_path = [p for p in path]
+    i = 0
+    while i < len(pruned_path) - 2:
+        collinear = collinearity(point(pruned_path[i]), point(pruned_path[i + 1]), point(pruned_path[i + 2]))
+        if collinear:
+            pruned_path.remove(pruned_path[i + 1])
+        else:
+            i += 1
+    return pruned_path
+
+def calibrate_prunepath(path_offset):
+    def point(p):
+        return np.array([p[0], p[1], 1.]).reshape(1, -1)
+
+    p1 = [0, 0]
+    p2 = [20, path_offset]
+    p3 = [40, 0]
+    return abs(np.linalg.det(np.concatenate((point(p1), point(p2), point(p3)), 0))/np.linalg.norm(np.array(p1) - np.array(p3)))
+
+def prunepath_normalized(path, epsilon):
+    def point(p):
+        return np.array([p[0], p[1], 1.]).reshape(1, -1)
+
+    # use calibrated criteria, max length between waypoints.
+    def collinearity_scaled(p1, p2, p3, trailing):
+        dist = np.linalg.norm(np.array(p1) - np.array(p3))
+        delta = abs(np.linalg.det(np.concatenate((p1, p2, p3), 0))/dist)
+        if delta < epsilon:
+            if trailing != None:
+                # check for criteria on front three points (turns)
+                return abs(np.linalg.det(np.concatenate((point(trailing), p2, p3), 0))/np.linalg.norm(np.array(point(trailing)) - np.array(p3))) < epsilon 
+            else:
+                return True 
+
+        return False
+
+    pruned_path = [p for p in path]
+    i = 0
+    trailing = None
+    while i < len(pruned_path) - 2:
+        collinear = collinearity_scaled(point(pruned_path[i]), point(pruned_path[i + 1]), point(pruned_path[i + 2]), trailing)
+        if collinear:
+            trailing = pruned_path[i + 1]
+            pruned_path.remove(pruned_path[i + 1])
+        else:
+            trailing = None
+            i += 1
+    return pruned_path
+
+
+# get rid of islice to extract start position
+def home_latlon(filename):
+    """
+    Pull home lattitude and longitude from datafile
+    """
+    with open(filename) as f:
+        line = f.readline().rstrip()
+    
+    line = line.replace(',','')
+    latlon = line.split()
+
+    return float(latlon[1]), float(latlon[3])
+
+def coord_to_grid(coord, north_offset, east_offset):
+    return (int(round(coord[0] - north_offset)), int(round(coord[1] - east_offset)))
+    # return (coord[0] - north_offset, coord[1] - east_offset)
+
+def grid_to_coord(grid, north_offset, east_offset):
+    return (grid[0] + north_offset, grid[1] + east_offset)    
+
+
 
