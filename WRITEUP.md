@@ -212,13 +212,22 @@ To minimize unnecessary attitude changes, the waypoint transition tolerances wer
 
 
 ### Execute the flight
-#### 1. Does it work?
-It works!
+
+#### Notes
+
+-- Simulator seemed to have issues wrt obstacles and would start the drone off within a building.  Both the following movie files illustrate this, as the ddrone would 'pop up' breaking thru the roof and then settle to specific altitude.
+
+-- The Mavlink connection would allows a timeout argument, but it is ignored (hard-coded to 1 minute within the udacidrone module).   To get around paths (particularily grid-based) that would take longer than one minute, added arguments to dump/load (pickle) a generated path.
+
+#### Courtyard via Graph-Based A-star
+
+[Courtyard - MP4](recordings/courtyard-graph.MP4)
+
+#### Mission & Stewart via Grid-Based A-star
+
+[Mission & Stewart - MP4](recordings/missionstewart-grid.mp4)
 
 ### Double check that you've met specifications for each of the [rubric](https://review.udacity.com/#!/rubrics/1534/view) points.
   
-# Extra Challenges: Real World Planning
-
-For an extra challenge, consider implementing some of the techniques described in the "Real World Planning" lesson. You could try implementing a vehicle model to take dynamic constraints into account, or implement a replanning method to invoke if you get off course or encounter unexpected obstacles.
 
 
