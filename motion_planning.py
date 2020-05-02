@@ -60,10 +60,9 @@ class MotionPlanning(Drone):
             if -1.0 * self.local_position[2] > 0.95 * self.target_position[2]:
                 self.waypoint_transition()
         elif self.flight_state == States.WAYPOINT:
-            [velnorth, veleast, veldown] = self.local_velocity
-            absv = math.sqrt(velnorth*velnorth + veleast*veleast)
+            # [velnorth, veleast, veldown] = self.local_velocity
+            # absv = math.sqrt(velnorth*velnorth + veleast*veleast)
             # print(f"velocity update: abs vel = {absv:5.2f}, north = {velnorth:5.2f}, east = {veleast:5.2f}, down = {veldown:5.2f}")
-
             waypoint_thresh = 1.0
             if len(self.waypoints) > 1:
                 # calculate waypoint threshold based on next heading update

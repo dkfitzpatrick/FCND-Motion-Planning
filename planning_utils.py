@@ -222,7 +222,7 @@ def prunepath_normalized(path, epsilon):
         delta = abs(np.linalg.det(np.concatenate((p1, p2, p3), 0))/dist)
         if delta < epsilon:
             if trailing != None:
-                # check for criteria on front three points (turns)
+                # check for criteria on leading three points (for upcoming turns)
                 return abs(np.linalg.det(np.concatenate((point(trailing), p2, p3), 0))/np.linalg.norm(np.array(point(trailing)) - np.array(p3))) < epsilon 
             else:
                 return True 
